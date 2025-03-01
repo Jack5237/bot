@@ -6,20 +6,93 @@ By default, the values defined in the classes are used, these can be overridden 
 `.env` and `.env.server` files are used to populate env vars, if present.
 """
 import os
+from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
+from pathlib import Path
+from typing import Optional, Tuple, Union
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field, validator
 from pydantic_settings import BaseSettings
 
 
 class EnvConfig(
     BaseSettings,
     env_file=(".env.server", ".env"),
-    env_file_encoding = "utf-8",
-    env_nested_delimiter = "__",
+    env_file_encoding="utf-8",
+    env_nested_delimiter="__",
     extra="ignore",
 ):
     """Our default configuration for models that should load from .env files."""
+
+
+@dataclass(frozen=True)
+class Webhook:
+    """A base class for all webhooks."""
+
+    id: int
+    channel: int
+
+
+class BotReplies(Enum):
+    """Enum for bot reply messages."""
+
+    NEGATIVE = (
+        "Noooooo!!",
+        "Nope.",
+        "I'm sorry Dave, I'm afraid I can't do that.",
+        "I don't think so.",
+        "Not gonna happen.",
+        "Out of the question.",
+        "Huh? No.",
+        "Nah.",
+        "Naw.",
+        "Not likely.",
+        "No way, José.",
+        "Not in a million years.",
+        "I would love to, but unfortunately... no.",
+        "Certainly not.",
+        "NEGATORY.",
+        "Nuh-uh.",
+        "Not in my house!",
+    )
+    POSITIVE = (
+        "Yep.",
+        "Absolutely!",
+        "Can do!",
+        "Affirmative!",
+        "Yeah okay.",
+        "Sure.",
+        "Sure thing!",
+        "You're the boss!",
+        "Okay.",
+        "No problem.",
+        "I got you.",
+        "Alright.",
+        "You got it!",
+        "ROGER THAT",
+        "Of course!",
+        "Aye aye, cap'n!",
+        "I'll allow it.",
+    )
+    ERROR = (
+        "Please don't do that.",
+        "You have to stop.",
+        "Do you mind?",
+        "In the future, don't do that.",
+        "That was a mistake.",
+        "You blew it.",
+        "Application bot.exe will be closed.",
+        "Kernel Panic! *Kernel runs around in panic*",
+        "Error 418. I am a teapot.",
+        "Noooooo!!",
+        "I can't believe you've done this",
+    )
+
+
+NEGATIVE_REPLIES = BotReplies.NEGATIVE.value
+POSITIVE_REPLIES = BotReplies.POSITIVE.value
+ERROR_REPLIES = BotReplies.ERROR.value
 
 
 class _Miscellaneous(EnvConfig):
@@ -29,24 +102,27 @@ class _Miscellaneous(EnvConfig):
 
 Miscellaneous = _Miscellaneous()
 
-
 FILE_LOGS = Miscellaneous.file_logs
 DEBUG_MODE = Miscellaneous.debug
 
 
 class _Bot(EnvConfig, env_prefix="bot_"):
+    prefix: str = Field(default="!", description="The command prefix for the bot.")
+    sentry_dsn: Optional[str] = Field(default=None, description="The Sentry DSN for error tracking.")
+    token: str = Field(..., description="The bot's authentication token.")
+    trace_loggers: str = Field(default="*", description="The loggers to trace.")
 
-    prefix: str = "!"
-    sentry_dsn: str = ""
-    token: str
-    trace_loggers: str = "*"
+    @validator("prefix")
+    def prefix_must_be_single_char(cls, v):
+        if len(v) != 1:
+            raise ValueError("prefix must be a single character")
+        return v
 
 
 Bot = _Bot()
 
 
 class _Channels(EnvConfig, env_prefix="channels_"):
-
     announcements: int = 354619224620138496
     changelog: int = 748238795236704388
     mailing_lists: int = 704372456592506880
@@ -131,7 +207,6 @@ Channels = _Channels()
 
 
 class _Roles(EnvConfig, env_prefix="roles_"):
-
     # Self-assignable roles, see the Subscribe cog
     advent_of_code: int = 518565788744024082
     announcements: int = 463658397560995840
@@ -174,7 +249,6 @@ Roles = _Roles()
 
 
 class _Categories(EnvConfig, env_prefix="categories_"):
-
     logs: int = 468520609152892958
     moderators: int = 749736277464842262
     modmail: int = 714494672835444826
@@ -191,28 +265,27 @@ Categories = _Categories()
 
 
 class _Guild(EnvConfig, env_prefix="guild_"):
-
     id: int = 267624335836053506
     invite: str = "https://discord.gg/python"
 
-    moderation_categories: tuple[int, ...] = (
+    moderation_categories: Tuple[int, ...] = (
         Categories.moderators,
         Categories.modmail,
         Categories.logs,
         Categories.appeals,
-        Categories.appeals_2
+        Categories.appeals_2,
     )
-    moderation_channels: tuple[int, ...] = (Channels.admins, Channels.admin_spam, Channels.mods)
-    modlog_blacklist: tuple[int, ...] = (
+    moderation_channels: Tuple[int, ...] = (Channels.admins, Channels.admin_spam, Channels.mods)
+    modlog_blacklist: Tuple[int, ...] = (
         Channels.attachment_log,
         Channels.message_log,
         Channels.mod_log,
         Channels.staff_voice,
-        Channels.filter_log
+        Channels.filter_log,
     )
-    reminder_whitelist: tuple[int, ...] = (Channels.bot_commands, Channels.dev_contrib, Channels.black_formatter)
-    moderation_roles: tuple[int, ...] = (Roles.admins, Roles.mod_team, Roles.moderators, Roles.owners)
-    staff_roles: tuple[int, ...] = (Roles.admins, Roles.helpers, Roles.mod_team, Roles.owners)
+    reminder_whitelist: Tuple[int, ...] = (Channels.bot_commands, Channels.dev_contrib, Channels.black_formatter)
+    moderation_roles: Tuple[int, ...] = (Roles.admins, Roles.mod_team, Roles.moderators, Roles.owners)
+    staff_roles: Tuple[int, ...] = (Roles.admins, Roles.helpers, Roles.mod_team, Roles.owners)
 
 
 Guild = _Guild()
@@ -254,15 +327,7 @@ class ThreadArchiveTimes(Enum):
     WEEK = 10080
 
 
-class Webhook(BaseModel):
-    """A base class for all webhooks."""
-
-    id: int
-    channel: int
-
-
 class _Webhooks(EnvConfig, env_prefix="webhooks_"):
-
     big_brother: Webhook = Webhook(id=569133704568373283, channel=Channels.big_brother)
     dev_log: Webhook = Webhook(id=680501655111729222, channel=Channels.dev_log)
     duck_pond: Webhook = Webhook(id=637821475327311927, channel=Channels.duck_pond)
@@ -275,7 +340,6 @@ Webhooks = _Webhooks()
 
 
 class _BigBrother(EnvConfig, env_prefix="big_brother_"):
-
     header_message_limit: int = 15
     log_delay: int = 15
 
@@ -284,11 +348,10 @@ BigBrother = _BigBrother()
 
 
 class _CodeBlock(EnvConfig, env_prefix="code_block_"):
-
     # The channels in which code blocks will be detected. They are not subject to a cooldown.
-    channel_whitelist: tuple[int, ...] = (Channels.bot_commands,)
+    channel_whitelist: Tuple[int, ...] = (Channels.bot_commands,)
     # The channels which will be affected by a cooldown. These channels are also whitelisted.
-    cooldown_channels: tuple[int, ...] = (Channels.python_general,)
+    cooldown_channels: Tuple[int, ...] = (Channels.python_general,)
 
     cooldown_seconds: int = 300
     minimum_lines: int = 4
@@ -298,19 +361,17 @@ CodeBlock = _CodeBlock()
 
 
 class _HelpChannels(EnvConfig, env_prefix="help_channels_"):
-
     enable: bool = True
     idle_minutes: int = 60
     deleted_idle_minutes: int = 5
     # Roles which are allowed to use the command which makes channels dormant
-    cmd_whitelist: tuple[int, ...] = Guild.moderation_roles
+    cmd_whitelist: Tuple[int, ...] = Guild.moderation_roles
 
 
 HelpChannels = _HelpChannels()
 
 
 class _RedirectOutput(EnvConfig, env_prefix="redirect_output_"):
-
     delete_delay: int = 15
     delete_invocation: bool = True
 
@@ -319,10 +380,9 @@ RedirectOutput = _RedirectOutput()
 
 
 class _DuckPond(EnvConfig, env_prefix="duck_pond_"):
-
     threshold: int = 7
 
-    default_channel_blacklist: tuple[int, ...] = (
+    default_channel_blacklist: Tuple[int, ...] = (
         Channels.announcements,
         Channels.python_news,
         Channels.python_events,
@@ -336,28 +396,28 @@ class _DuckPond(EnvConfig, env_prefix="duck_pond_"):
         Channels.staff_info,
     )
 
-    extra_channel_blacklist: tuple[int, ...] = tuple()
+    extra_channel_blacklist: Tuple[int, ...] = tuple()
 
     @computed_field
     @property
-    def channel_blacklist(self) -> tuple[int, ...]:
+    @lru_cache(maxsize=1)
+    def channel_blacklist(self) -> Tuple[int, ...]:
         return self.default_channel_blacklist + self.extra_channel_blacklist
+
 
 DuckPond = _DuckPond()
 
 
 class _PythonNews(EnvConfig, env_prefix="python_news_"):
-
     channel: int = Webhooks.python_news.channel
     webhook: int = Webhooks.python_news.id
-    mail_lists: tuple[str, ...] = ("python-ideas", "python-announce-list", "pypi-announce", "python-dev")
+    mail_lists: Tuple[str, ...] = ("python-ideas", "python-announce-list", "pypi-announce", "python-dev")
 
 
 PythonNews = _PythonNews()
 
 
 class _VoiceGate(EnvConfig, env_prefix="voice_gate_"):
-
     delete_after_delay: int = 60
     minimum_activity_blocks: int = 3
     minimum_days_member: int = 3
@@ -368,7 +428,6 @@ VoiceGate = _VoiceGate()
 
 
 class _Branding(EnvConfig, env_prefix="branding_"):
-
     cycle_frequency: int = 3
 
 
@@ -376,7 +435,6 @@ Branding = _Branding()
 
 
 class _VideoPermission(EnvConfig, env_prefix="video_permission_"):
-
     default_permission_duration: int = 5
 
 
@@ -384,7 +442,6 @@ VideoPermission = _VideoPermission()
 
 
 class _Redis(EnvConfig, env_prefix="redis_"):
-
     host: str = "redis.databases.svc.cluster.local"
     password: str = ""
     port: int = 6379
@@ -395,7 +452,6 @@ Redis = _Redis()
 
 
 class _CleanMessages(EnvConfig, env_prefix="clean_"):
-
     message_limit: int = 10_000
 
 
@@ -403,7 +459,6 @@ CleanMessages = _CleanMessages()
 
 
 class _Stats(EnvConfig, env_prefix="stats_"):
-
     presence_update_timeout: int = 30
     statsd_host: str = "graphite.default.svc.cluster.local"
 
@@ -412,7 +467,6 @@ Stats = _Stats()
 
 
 class _Cooldowns(EnvConfig, env_prefix="cooldowns_"):
-
     tags: int = 60
 
 
@@ -420,7 +474,6 @@ Cooldowns = _Cooldowns()
 
 
 class _Metabase(EnvConfig, env_prefix="metabase_"):
-
     username: str = ""
     password: str = ""
     base_url: str = "http://metabase.tooling.svc.cluster.local"
@@ -432,7 +485,6 @@ Metabase = _Metabase()
 
 
 class _BaseURLs(EnvConfig, env_prefix="urls_"):
-
     # Snekbox endpoints
     snekbox_eval_api: str = "http://snekbox.snekbox.svc.cluster.local/eval"
 
@@ -452,7 +504,6 @@ BaseURLs = _BaseURLs()
 
 
 class _URLs(_BaseURLs):
-
     # Discord API endpoints
     discord_invite_api: str = "".join([BaseURLs.discord_api, "invites"])
 
@@ -467,7 +518,6 @@ URLs = _URLs()
 
 
 class _Emojis(EnvConfig, env_prefix="emojis_"):
-
     badge_bug_hunter: str = "<:bug_hunter_lvl1:743882896372269137>"
     badge_bug_hunter_level_2: str = "<:bug_hunter_lvl2:743882896611344505>"
     badge_early_supporter: str = "<:early_supporter:743882896909140058>"
@@ -574,20 +624,19 @@ class Icons:
 class Colours:
     """Colour codes, mostly used to set discord.Embed colours."""
 
-    blue: int = 0x3775a8
-    bright_green: int = 0x01d277
-    orange: int = 0xe67e22
-    pink: int = 0xcf84e0
-    purple: int = 0xb734eb
-    soft_green: int = 0x68c290
-    soft_orange: int = 0xf9cb54
-    soft_red: int = 0xcd6d6d
-    white: int = 0xfffffe
-    yellow: int = 0xffd241
+    blue: int = 0x3775A8
+    bright_green: int = 0x01D277
+    orange: int = 0xE67E22
+    pink: int = 0xCF84E0
+    purple: int = 0xB734EB
+    soft_green: int = 0x68C290
+    soft_orange: int = 0xF9CB54
+    soft_red: int = 0xCD6D6D
+    white: int = 0xFFFFFE
+    yellow: int = 0xFFD241
 
 
 class _Keys(EnvConfig, env_prefix="api_keys_"):
-
     github: str = ""
     site_api: str = ""
 
@@ -595,8 +644,8 @@ class _Keys(EnvConfig, env_prefix="api_keys_"):
 Keys = _Keys()
 
 
-BOT_DIR = os.path.dirname(__file__)
-PROJECT_ROOT = os.path.abspath(os.path.join(BOT_DIR, os.pardir))
+BOT_DIR = Path(__file__).parent
+PROJECT_ROOT = BOT_DIR.parent
 
 # Default role combinations
 MODERATION_ROLES = Guild.moderation_roles
@@ -611,59 +660,3 @@ MODERATION_CATEGORIES = Guild.moderation_categories
 
 # Git SHA for Sentry
 GIT_SHA = os.environ.get("GIT_SHA", "development")
-
-
-# Bot replies
-NEGATIVE_REPLIES = (
-    "Noooooo!!",
-    "Nope.",
-    "I'm sorry Dave, I'm afraid I can't do that.",
-    "I don't think so.",
-    "Not gonna happen.",
-    "Out of the question.",
-    "Huh? No.",
-    "Nah.",
-    "Naw.",
-    "Not likely.",
-    "No way, José.",
-    "Not in a million years.",
-    "I would love to, but unfortunately... no.",
-    "Certainly not.",
-    "NEGATORY.",
-    "Nuh-uh.",
-    "Not in my house!",
-)
-
-POSITIVE_REPLIES = (
-    "Yep.",
-    "Absolutely!",
-    "Can do!",
-    "Affirmative!",
-    "Yeah okay.",
-    "Sure.",
-    "Sure thing!",
-    "You're the boss!",
-    "Okay.",
-    "No problem.",
-    "I got you.",
-    "Alright.",
-    "You got it!",
-    "ROGER THAT",
-    "Of course!",
-    "Aye aye, cap'n!",
-    "I'll allow it.",
-)
-
-ERROR_REPLIES = (
-    "Please don't do that.",
-    "You have to stop.",
-    "Do you mind?",
-    "In the future, don't do that.",
-    "That was a mistake.",
-    "You blew it.",
-    "Application bot.exe will be closed.",
-    "Kernel Panic! *Kernel runs around in panic*",
-    "Error 418. I am a teapot.",
-    "Noooooo!!",
-    "I can't believe you've done this",
-)
